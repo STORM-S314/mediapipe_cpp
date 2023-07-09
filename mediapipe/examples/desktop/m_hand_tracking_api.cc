@@ -33,18 +33,13 @@
 #include "mediapipe/framework/port/parse_text_proto.h"
 #include "mediapipe/framework/port/status.h"
 #include "mediapipe/util/resource_util.h"
+#include "mediapipe/examples/desktop/math_util.h"
 
 #define EXPORT_API __attribute__((visibility ("default")))
 #define logfile "Assets/Plugins/mLog.log"
 extern "C" {
-//特征点结构体
-struct PoseInfo{
-  float x,y,z;
-};
-
-typedef struct PoseInfo PoseInfo;
 //特征点回调函数
-typedef void(*LandmarksCallBack)(int image_index,PoseInfo* infos, int count);
+typedef void(*LandmarksCallBack)(int image_index,m_math::PoseInfo* infos, int count);
 LandmarksCallBack m_LandmarksCallBackFunc=nullptr;
 //输出流轮询器
 std::unique_ptr<mediapipe::OutputStreamPoller> poller;
@@ -134,7 +129,86 @@ EXPORT_API  int InitMPPGraph(const char* model_path){
   capture.set(cv::CAP_PROP_FPS, 60);
   return StatusCodeToInt(code);
 }
+/**
+ * 预测手势
+*/
+std::string predictGesture(std::vector<m_math::PoseInfo> hand_landmarks){
+  float d_3_5 = m_math::distance(hand_landmarks[3],hand_landmarks[5]);
+  float d_2_3 = m_math::distance(hand_landmarks[2],hand_landmarks[3]);
+  float angle0 = m_math::angle(hand_landmarks[0],hand_landmarks[1],hand_landmarks[2]);
+  float angle1 = m_math::angle(hand_landmarks[1],hand_landmarks[2],hand_landmarks[3]);
+  float angle2 = m_math::angle(hand_landmarks[2],hand_landmarks[3],hand_landmarks[4]);
+  int thumb = 0;
+  int index = 0;
+  int middle = 0;
+  int ring = 0;
+  int little = 0;
+  if(angle0+angle1+angle2>460 && d_3_5/d_2_3>1.2){
+    thumb=1;
+  }else{
+    thumb=0;
+  }
+  if(hand_landmarks[8].y<hand_landmarks[7].y && hand_landmarks[8].y<hand_landmarks[6].y){
+    index=1;
+  }
+  else if(hand_landmarks[8].y>hand_landmarks[6].y){
+    index=0;
+  }else{
+    index=-1;
+  }
+  if(hand_landmarks[12].y<hand_landmarks[11].y && hand_landmarks[12].y<hand_landmarks[10].y){
+    middle=1;
+  }
+  else if(hand_landmarks[12].y>hand_landmarks[10].y){
+    middle=0;
+  }else{
+    middle=-1;
+  }
+  if(hand_landmarks[16].y<hand_landmarks[15].y && hand_landmarks[16].y<hand_landmarks[14].y){
+    ring=1;
+  }
+  else if(hand_landmarks[16].y>hand_landmarks[14].y){
+    ring=0;
+  }else{
+    ring=-1;
+  }
+  if(hand_landmarks[20].y<hand_landmarks[19].y && hand_landmarks[20].y<hand_landmarks[18].y){
+    little=1;
+  }
+  else if(hand_landmarks[20].y>hand_landmarks[18].y){
+    little=0;
+  }else{
+    little=-1;
+  }
+  if(thumb<0||index<0||middle<0||ring<0||little<0){
+    return "None";
+  }
+  if(thumb==1&&index==1&&middle==1&&ring==1&&little==1){
+    return "Five";
+  }
+  if(thumb==1&&index==1&&middle==0&&ring==0&&little==0){
+    return "Zoom";
+  }
+  if(thumb==1&&index==1&&middle==1&&ring==0&&little==0){
+    return "Three";
+  }
+  if(thumb==0&&index==1&&middle==1&&ring==1&&little==0){
+    return "Three";
+  }
+  if(thumb==0&&index==1&&middle==1&&ring==1&&little==1){
+    return "Four";
+  }
+  if(thumb==0&&index==1&&middle==1&&ring==0&&little==0){
+    return "Peace";
+  }
+  if(thumb==0&&index==1&&middle==0&&ring==0&&little==0){
+    return "One";
+  }
+  if(thumb==0&&index==0&&middle==0&&ring==0&&little==0){
+    return "Fist";
+  }
 
+}
 absl::Status RunMPPGraph(int cSock) {
   bool grab_frames=true;
   while (grab_frames) {
@@ -163,14 +237,14 @@ absl::Status RunMPPGraph(int cSock) {
         if (poller->Next(&packet)){
           
           std::vector<mediapipe::NormalizedLandmarkList> output_landmarks = packet.Get<std::vector<mediapipe::NormalizedLandmarkList>>();
-          std::vector<PoseInfo> hand_landmarks;
+          std::vector<m_math::PoseInfo> hand_landmarks;
           hand_landmarks.clear();
           for (int m = 0; m < output_landmarks.size(); ++m)
           {
               mediapipe::NormalizedLandmarkList single_hand_NormalizedLandmarkList = output_landmarks[m];
               for (int i = 0; i < single_hand_NormalizedLandmarkList.landmark_size(); ++i)
               {
-                  PoseInfo info;
+                  m_math::PoseInfo info;
                   const mediapipe::NormalizedLandmark landmark = single_hand_NormalizedLandmarkList.landmark(i);
                   info.x = landmark.x();
                   info.y = landmark.y();
@@ -178,7 +252,10 @@ absl::Status RunMPPGraph(int cSock) {
                   hand_landmarks.push_back(info);
               }
           }
-          std::string hand_landmarks_pose_infos="";
+          //判断手势
+          std::string gesture = predictGesture(hand_landmarks);
+          //将坐标信息转为str发送到客户端
+          std::string hand_landmarks_pose_infos=gesture+"\n";
           for (int i = 0; i < hand_landmarks.size(); ++i)
           {
             hand_landmarks_pose_infos+= std::to_string(i);
@@ -220,7 +297,7 @@ EXPORT_API int Release(){
 
 }
 
-void callback(int image_index,PoseInfo* infos, int count){
+void callback(int image_index,m_math::PoseInfo* infos, int count){
   std::cout<<"has info"<<std::endl;
 }
 int main(int argc, char** argv) {

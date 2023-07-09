@@ -55,7 +55,9 @@ cc_library(
 )
 cc_library(
     name = "m_hand_tracking_cpu",
-    srcs = ["m_hand_tracking_api.cc"],
+    srcs = ["m_hand_tracking_api.cc",
+            "math_util.cc",
+            "math_util.h"],
     deps = [
         "//mediapipe/framework:calculator_framework",
         "//mediapipe/framework/formats:image_frame",
